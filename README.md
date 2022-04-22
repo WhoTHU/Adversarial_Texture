@@ -1,5 +1,9 @@
 # Adversarial Texture for Fooling Person Detectors in Physical World
 
+Official implementation for the CVPR 2022 paper [Adversarial Texture for Fooling Person Detectors in Physical World](https://arxiv.org/abs/2203.03373)
+
+by Zhanhao Hu, Siyuan Huang, Xiaopei Zhu, Xiaolin Hu, Fuchun Sun, Bo Zhang.
+
 #### 1. Installation
 ### Requirements
 All the codes are tested in the following environment:
