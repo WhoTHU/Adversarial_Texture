@@ -4,6 +4,8 @@ Official implementation for the CVPR 2022 paper [Adversarial Texture for Fooling
 
 by Zhanhao Hu, Siyuan Huang, Xiaopei Zhu, Xiaolin Hu, Fuchun Sun, Bo Zhang.
 
+Note: The code is based on the [official implementation](https://gitlab.com/EAVISE/adversarial-yolo) for the paper Fooling Automated Surveillance Cameras: Adversarial Patches to Attack Person Detection.
+
 #### 1. Installation
 ### Requirements
 All the codes are tested in the following environment:
