@@ -6,43 +6,8 @@ v2kwargs={
     'weightfile': "./data/models/yolov2.weights",
     'max_lab': 15,
     'batch_size': 8,
-
-
+    'old_fasion': True,
 }
-
-v3kwargs={
-    'name': 'yolov3',
-    'cfgfile': "./data/models/yolov3.cfg",
-    'weightfile': "./data/models/yolov3.weights",
-    'max_lab': 25,
-    'batch_size': 8,
-
-}
-
-frkwargs={
-    'name': 'faster_rcnn',
-    'max_lab': 30,
-    'batch_size': 8,
-
-}
-
-mrkwargs={
-    'name': 'mask_rcnn',
-    'max_lab': 30,
-    'batch_size': 8,
-
-}
-
-esbkwargs={
-    'name': 'ensemble',
-    'v2kwargs': v2kwargs,
-    'v3kwargs': v3kwargs,
-    'models': ['yolov2', 'yolov3'],
-    'max_lab': 30,
-    'batch_size': 1,
-
-}
-
 
 args_RCA = {
     'cloth_size': [900, 900],
@@ -59,6 +24,8 @@ args_RCA = {
     'img_size': 416,
     'eps': 1e-5,
     'gp': 0,
+    'iou_thresh': 0.01,
+    'conf_thresh': 0.01,
 }
 
 args_TCA = {
@@ -76,6 +43,8 @@ args_TCA = {
     'img_size': 416,
     'eps': 1e-5,
     'gp': 0,
+    'iou_thresh': 0.01,
+    'conf_thresh': 0.01,
 }
 
 args_EGA = {
@@ -99,12 +68,15 @@ args_EGA = {
     'eps': 1e-5,
     'tv_loss': 2.5,
     'gp': 0,
+    'iou_thresh': 0.3,
+    'conf_thresh': 0.01,
+
 }
 
 args_TCEGA = {
     'crop_size': 'equal',
     'crop_type': None,
-    'z_shape' : [1, 128, 4, 4],
+    'z_shape': [1, 128, 4, 4],
     'crop_size_z': [9, 9],
     'crop_type_z': 'recursive',
     'pixel_size': [1, 1],
@@ -112,7 +84,7 @@ args_TCEGA = {
     'tps_range': 0.1,
     'tps_canvas': 0.5,
     'n_epochs': 2000,
-    'z_epochs': 1000,
+    'z_epochs': 2000,
     'learning_rate': 0.001,
     'learning_rate_z': 0.03,
     'DIM': 128,
@@ -127,6 +99,8 @@ args_TCEGA = {
     'eps': 1e-5,
     'tv_loss': 0,
     'gp': 0,
+    'iou_thresh': 0.3,
+    'conf_thresh': 0.01,
 }
 
 targs_RCA = {
@@ -145,6 +119,7 @@ targs_TCA = {
     'crop_type': 'recursive',
     'pixel_size': [1] * 2,
     'pooling': 'gauss',
+
     'img_size': 416,
     'batch_size': 8,
 }
@@ -175,10 +150,6 @@ targs_TCEGA = {
 
 kwargs_dict = {
     'yolov2': v2kwargs,
-    'yolov3': v3kwargs,
-    'fast_rcnn': frkwargs,
-    'mask_rcnn': mrkwargs,
-    'ensemble': esbkwargs,
 }
 
 args_dict = {

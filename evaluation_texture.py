@@ -18,7 +18,7 @@ from utils import *
 from cfg import get_cfgs
 from tps_grid_gen import TPSGridGen
 from load_models import load_models
-from generator_dim2 import GAN_dis
+from generator_dim import GAN_dis
 
 parser = argparse.ArgumentParser(description='PyTorch Training')
 parser.add_argument('--net', default='yolov2', help='target net name')
@@ -51,11 +51,7 @@ class_names = utils.load_class_names('./data/coco.names')
 target_func = lambda obj, cls: obj
 patch_applier = load_data.PatchApplier().to(device)
 patch_transformer = load_data.PatchTransformer().to(device)
-if kwargs['name'] == 'ensemble':
-    prob_extractor_yl2 = load_data.MaxProbExtractor(0, 80, target_func, 'yolov2').to(device)
-    prob_extractor_yl3 = load_data.MaxProbExtractor(0, 80, target_func, 'yolov3').to(device)
-else:
-    prob_extractor = load_data.MaxProbExtractor(0, 80, target_func, kwargs['name']).to(device)
+prob_extractor = load_data.MaxProbExtractor(0, 80, target_func, kwargs['name']).to(device)
 total_variation = load_data.TotalVariation().to(device)
 
 target_control_points = torch.tensor(list(itertools.product(
@@ -94,7 +90,6 @@ if pargs.prepare_data:
             for i in range(data.size(0)):
                 boxes = all_boxes[i]
                 boxes = utils.nms(boxes, nms_thresh)
-                boxes = torch.stack(boxes)
                 new_boxes = boxes[:, [6, 0, 1, 2, 3]]
                 new_boxes = new_boxes[new_boxes[:, 0] == 0]
                 new_boxes = new_boxes.detach().cpu().numpy()
@@ -133,8 +128,8 @@ def label_filter(truths, labels=None):
         return new_truths
 
 
-def test(model, loader, adv_patch=None, conf_thresh=0.5, nms_thresh=0.4, iou_thresh=0.5, num_of_samples=100,
-         pooling=None, mode='ap'):
+def test(model, loader, adv_cloth=None, gan=None, z=None, type=None, conf_thresh=0.5, nms_thresh=0.4, iou_thresh=0.5, num_of_samples=100,
+         old_fasion=True):
     model.eval()
     total = 0.0
     proposals = 0.0
@@ -145,13 +140,24 @@ def test(model, loader, adv_patch=None, conf_thresh=0.5, nms_thresh=0.4, iou_thr
         positives = []
         for batch_idx, (data, target) in tqdm(enumerate(loader), total=batch_num, position=0):
             data = data.to(device)
+            if type == 'gan':
+                z = torch.randn(1, 128, *args.z_size, device=device)
+                cloth = gan.generate(z)
+                adv_patch, x, y = random_crop(cloth, args.crop_size, pos=args.pos, crop_type=args.crop_type)
+            elif type =='z':
+                z_crop, _, _ = random_crop(z, args.z_crop_size, pos=args.z_pos, crop_type=args.z_crop_type)
+                cloth = gan.generate(z_crop)
+                adv_patch, x, y = random_crop(cloth, args.crop_size, pos=args.pos, crop_type=args.crop_type)
+            elif type == 'patch':
+                adv_patch, x, y = random_crop(adv_cloth, args.crop_size, pos=args.pos, crop_type=args.crop_type)
+            elif type is not None:
+                raise ValueError
 
             if adv_patch is not None:
                 target = target.to(device)
                 adv_batch_t = patch_transformer(adv_patch, target, args.img_size, do_rotate=True, rand_loc=False,
-                                                pooling=pooling)
+                                                pooling=args.pooling, old_fasion=old_fasion)
                 data = patch_applier(data, adv_batch_t)
-
             output = model(data)
             all_boxes = utils.get_region_boxes_general(output, model, conf_thresh, kwargs['name'])
             for i in range(len(all_boxes)):
@@ -159,20 +165,20 @@ def test(model, loader, adv_patch=None, conf_thresh=0.5, nms_thresh=0.4, iou_thr
                 boxes = utils.nms(boxes, nms_thresh)
                 truths = target[i].view(-1, 5)
                 truths = label_filter(truths, labels=[0])
-                truths = truths[:, 1:].tolist()
                 num_gts = truths_length(truths)
+                truths = truths[:num_gts, 1:]
+                truths = truths.tolist()
                 total = total + num_gts
-
                 for j in range(len(boxes)):
                     if boxes[j][6].item() == 0:
                         best_iou = 0
                         best_index = 0
 
-                        for box_gt in truths:
+                        for ib, box_gt in enumerate(truths):
                             iou = utils.bbox_iou(box_gt, boxes[j], x1y1x2y2=False)
                             if iou > best_iou:
                                 best_iou = iou
-                                best_index = truths.index(box_gt)
+                                best_index = ib
                         if best_iou > iou_thresh:
                             del truths[best_index]
                             positives.append((boxes[j][4].item(), True))
@@ -204,7 +210,7 @@ def test(model, loader, adv_patch=None, conf_thresh=0.5, nms_thresh=0.4, iou_thr
         p = np.array(precision)
         r = np.array(recall)
         p_start = p[np.argmin(r)]
-        samples = np.arange(0., 1., 1.0/num_of_samples)
+        samples = np.arange(0., 1., 1.0 / num_of_samples)
         interpolated = interp1d(r, p, fill_value=(p_start, 0.), bounds_error=False)(samples)
         avg = sum(interpolated) / len(interpolated)
     elif len(precision) > 0 and len(recall) > 0:
@@ -221,7 +227,11 @@ if pargs.npz_dir is None:
             img_path = os.path.join(result_dir, 'patch%d.npy' % args.n_epochs)
         else:
             img_path = pargs.load_path
-        cloth = torch.from_numpy(np.load(img_path)[:1])
+        cloth = torch.from_numpy(np.load(img_path)[:1]).to(device)
+        test_cloth = cloth.detach().clone()
+        test_gan = None
+        test_z = None
+        test_type = 'patch'
 
     elif pargs.method == 'EGA' or pargs.method == 'TCEGA':
         gan = GAN_dis(DIM=128, z_dim=128, img_shape=(324, )*2)
@@ -236,28 +246,26 @@ if pargs.npz_dir is None:
         gan.eval()
         for p in gan.parameters():
             p.requires_grad = False
+        test_cloth = None
+        test_gan = gan
         if pargs.method == 'EGA':
-            z_crop = torch.randn(1, 128, *args.z_size, device=device)
+            test_z = None
+            test_type = 'gan'
+            cloth = gan.generate(torch.randn(1, 128, *args.z_size, device=device))
         else:
-            # z load
             if pargs.load_path_z is None:
                 result_dir = './results/result_' + pargs.net + '_' + pargs.method
-                z_path = os.path.join(result_dir, 'z1000.npy')
+                z_path = os.path.join(result_dir, 'z2000.npy')
             else:
                 z_path = pargs.load_path_z
             z = np.load(z_path)
             z = torch.from_numpy(z).to(device)
+            test_z = z
+            test_type = 'z'
             z_crop, _, _ = random_crop(z, args.z_crop_size, pos=args.z_pos, crop_type=args.z_crop_type)
-        cloth = gan.generate(z_crop)
+            cloth = gan.generate(z_crop)
     else:
         raise ValueError
-
-    adv_patch, x, y = random_crop(cloth, args.crop_size, pos=args.pos, crop_type=args.crop_type)
-    adv_patch = adv_patch.to(device)
-    adv_patch_tps, _ = tps.tps_trans(adv_patch, max_range=0.1, canvas=0.5, target_shape=adv_patch.shape[-2:])
-
-    print(cloth.shape)
-    print(adv_patch.shape)
 
     save_dir = './test_results'
     if not os.path.exists(save_dir):
@@ -265,7 +273,8 @@ if pargs.npz_dir is None:
     save_path = os.path.join(save_dir, pargs.suffix)
 
     plt.figure(figsize=[15, 10])
-    prec, rec, ap, confs = test(darknet_model, test_loader, adv_patch.detach().clone(), conf_thresh=0.01, pooling=args.pooling)
+    prec, rec, ap, confs = test(darknet_model, test_loader, adv_cloth=test_cloth, gan=test_gan, z=test_z, type=test_type, conf_thresh=0.01, old_fasion=kwargs['old_fasion'])
+
     np.savez(save_path, prec=prec, rec=rec, ap=ap, confs=confs, adv_patch=cloth.detach().cpu().numpy())
     print('AP is %.4f'% ap)
     plt.plot(rec, prec)

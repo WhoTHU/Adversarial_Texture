@@ -1,11 +1,5 @@
 # Adversarial Texture for Fooling Person Detectors in Physical World
 
-Official implementation for the CVPR 2022 paper [Adversarial Texture for Fooling Person Detectors in Physical World](https://arxiv.org/abs/2203.03373)
-
-by Zhanhao Hu, Siyuan Huang, Xiaopei Zhu, Xiaolin Hu, Fuchun Sun, Bo Zhang.
-
-Note: The code is based on the [official implementation](https://gitlab.com/EAVISE/adversarial-yolo) for the paper Fooling Automated Surveillance Cameras: Adversarial Patches to Attack Person Detection.
-
 #### 1. Installation
 ### Requirements
 All the codes are tested in the following environment:
@@ -17,10 +11,9 @@ All the codes are tested in the following environment:
 * EasyDict 1.9
 
 #### 2. Preparation
-You need to download the yolov2 and yolov3 weights by
+You need to download the yolov2 weights by
 ```
 wget -P ./data/models/ https://pjreddie.com/media/files/yolov2.weights
-wget -P ./data/models/ https://pjreddie.com/media/files/yolov3.weights 
 ```
 and prepare the Inria Dataset
 ```
@@ -54,23 +47,18 @@ python evaluation_texture.py --method TCEGA --load_path pretrained/EGA.pkl --loa
 ##### Plot multiple results together
 In addition, we provide a command to plot all the results together. For example, if one run all five evaluations above, then run:
 ```
-python evaluation_texture.py --npz_dir ./test_result
+python evaluation_texture.py --npz_dir ./test_results
 ```
 It will output a precision v.s. recall curve located at "test_result/PR-curve.png". 
 
-<!-- An instance is shown below:
+An instance:
 <p align="center">
-  <img src="docs/PR-curve.png" width="70%">
+  <img src="test_results/PR-curve.png" width="70%">
 </p>
- -->
  
 #### 4. Train
 We provide the command to train for each method.
 ```
- python training_texture.py --net $NET_NAME --method $METHOD_NAME
+ python training_texture.py --method $METHOD_NAME
 ```
-One need to replace $NET_NAME to "yolov2" or "yolov3" to target different detectors. The $METHOD_NAME can be replaced to "RCA", "TCA", EGA" or "TCEGA" to use different methods. For example, one can use TC-EGA to attack YOLOv2 by
-```
- python training_texture.py --net yolov2 --method TCEGA
-```
-The patterns and checkpoints will be saved in directory "results/".
+$METHOD_NAME can be replaced to "RCA", "TCA", EGA" or "TCEGA" when one use different methods. The patterns and checkpoints will be saved in directory "results/".

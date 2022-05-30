@@ -1,6 +1,37 @@
 import numpy as np
 from PIL import Image
+import torch
+import torch.nn.functional as F
+from yolo2 import utils
 
+def truths_length(truths):
+    for i in range(len(truths)):
+        if truths[i][1] == -1:
+            return i
+    return len(truths)
+
+def get_det_loss(darknet_model, p_img, lab_batch, args, kwargs):
+    valid_num = 0
+    det_loss = p_img.new_zeros([])
+    output = darknet_model(p_img)
+    if kwargs['name'] == 'yolov2':
+        all_boxes_t = [utils.get_region_boxes_general(output, darknet_model, conf_thresh=args.conf_thresh, name=kwargs['name'])]
+    else:
+        raise ValueError
+
+    for all_boxes in all_boxes_t:
+        for ii in range(p_img.shape[0]):
+            if all_boxes[ii].shape[0] > 0:
+                iou_mat = utils.bbox_iou_mat(all_boxes[ii][..., :4], lab_batch[ii][:truths_length(lab_batch[ii]), 1:], False)
+                iou_max = iou_mat.max(1)[0]
+                idxs = iou_max > args.iou_thresh
+                det_confs = all_boxes[ii][idxs][:, 4]
+                if det_confs.shape[0] > 0:
+                    max_prob = det_confs.max()
+                    det_loss = det_loss + max_prob
+                    valid_num += 1
+
+    return det_loss, valid_num
 
 def gauss_kernel(ksize=5, sigma=None, conv=False, dtype=np.float32):
     half = (ksize - 1) * 0.5
@@ -54,7 +85,7 @@ def pad_and_scale(img, lab=None, size=(416, 416), color=(127, 127, 127)):
         return padded_img, lab
 
 
-def random_crop(cloth, crop_size, pos=None, crop_type=None):
+def random_crop(cloth, crop_size, pos=None, crop_type=None, fill=0):
     w = cloth.shape[2]
     h = cloth.shape[3]
     if crop_size is 'equal':
@@ -70,7 +101,13 @@ def random_crop(cloth, crop_size, pos=None, crop_type=None):
         else:
             r_w = pos[0]
             r_h = pos[1]
-        patch = cloth[:, :, r_w:r_w + crop_size[0], r_h:r_h + crop_size[1]]
+
+        p1 = max(0, 0 - r_h)
+        p2 = max(0, r_h + crop_size[1] - h)
+        p3 = max(0, 0 - r_w)
+        p4 = max(0, r_w + crop_size[1] - w)
+        cloth_pad = F.pad(cloth, [p1, p2, p3, p4], value=fill)
+        patch = cloth_pad[:, :, r_w:r_w + crop_size[0], r_h:r_h + crop_size[1]]
 
     elif crop_type == 'recursive':
         if pos is None:

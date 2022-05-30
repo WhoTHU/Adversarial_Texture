@@ -22,8 +22,8 @@ parser.add_argument('--net', default='yolov2', help='target net name')
 parser.add_argument('--method', default='TCEGA', help='method name')
 parser.add_argument('--suffix', default=None, help='suffix name')
 parser.add_argument('--gen_suffix', default=None, help='generator suffix name')
-parser.add_argument('--epoch', type=int, default=2, help='')
-parser.add_argument('--z_epoch', type=int, default=5, help='')
+parser.add_argument('--epoch', type=int, default=None, help='')
+parser.add_argument('--z_epoch', type=int, default=None, help='')
 parser.add_argument('--device', default='cuda:0', help='')
 pargs = parser.parse_args()
 
@@ -77,29 +77,6 @@ loader = train_loader
 epoch_length = len(loader)
 print(f'One epoch is {len(loader)}')
 
-
-def get_det_loss(p_img_batch):
-    if kwargs['name'] == 'ensemble':
-        output_yl2, output_yl3, det_loss = darknet_model(p_img_batch)
-
-        max_prob_yl2 = prob_extractor_yl2(output_yl2).max(1)[0].mean()
-
-        max_prob_yl3 = prob_extractor_yl3(output_yl3)
-        max_prob_yl3 = [m.max(1)[0] for m in max_prob_yl3]
-        max_prob_yl3 = torch.mean(torch.cat(max_prob_yl3, 0))
-
-        det_loss = det_loss + max_prob_yl2 + max_prob_yl3
-
-    elif kwargs['name'] == 'yolov3' or kwargs['name'] == 'yolov2':
-        output = darknet_model(p_img_batch)
-        max_prob = prob_extractor(output)
-        max_prob = [m.max(1)[0] for m in max_prob]
-        det_loss = torch.mean(torch.cat(max_prob, 0))
-    else:
-        raise ValueError
-    return det_loss
-
-
 def train_patch():
     def generate_patch(type):
         cloth_size_true = np.ceil(np.array(args.cloth_size) / np.array(args.pixel_size)).astype(np.int64)
@@ -135,9 +112,12 @@ def train_patch():
             adv_patch_crop, x, y = random_crop(adv_patch, args.crop_size, pos=args.pos, crop_type=args.crop_type)
             adv_patch_tps, _ = tps.tps_trans(adv_patch_crop, max_range=0.1, canvas=0.5) # random tps transform
             adv_batch_t = patch_transformer(adv_patch_tps, lab_batch, args.img_size, do_rotate=True, rand_loc=False,
-                                            pooling=args.pooling)
+                                            pooling=args.pooling, old_fasion=kwargs['old_fasion'])
             p_img_batch = patch_applier(img_batch, adv_batch_t)
-            det_loss = get_det_loss(p_img_batch)
+            det_loss, valid_num = get_det_loss(darknet_model, p_img_batch, lab_batch, args, kwargs)
+            if valid_num > 0:
+                det_loss = det_loss / valid_num
+
             tv = total_variation(adv_patch_crop)
             tv_loss = tv * args.tv_loss
             loss = det_loss + torch.max(tv_loss, torch.tensor(0.1).to(device))
@@ -161,7 +141,7 @@ def train_patch():
                 writer.add_scalar('misc/learning_rate', optimizer.param_groups[0]["lr"], iteration)
 
 
-            if epoch % max(min((args.n_epochs // 10), 10), 1) == 0:
+            if epoch % max(min((args.n_epochs // 10), 100), 1) == 0:
                 writer.add_image('patch', adv_patch.squeeze(0), iteration)
                 rpath = os.path.join(results_dir, 'patch%d' % epoch)
                 np.save(rpath, adv_patch.detach().cpu().numpy())
@@ -175,11 +155,11 @@ def train_patch():
         et0 = time.time()
         writer.flush()
     writer.close()
+    return 0
 
 
 def train_EGA():
     gen = GAN_dis(DIM=args.DIM, z_dim=args.z_dim, img_shape=args.patch_size)
-    # gan.load_state_dict(torch.load(MODEL_PATH, map_location='cpu'))
     gen.to(device)
     gen.train()
 
@@ -205,21 +185,23 @@ def train_EGA():
             z = torch.randn(img_batch.shape[0], args.z_dim, args.z_size, args.z_size, device=device)
 
             adv_patch = gen.generate(z)
-            adv_patch_crop, _ = tps.tps_trans(adv_patch, max_range=0.1, canvas=0.5, target_shape=adv_patch.shape[-2:])
-            adv_batch_t = patch_transformer(adv_patch_crop, lab_batch, args.img_size, do_rotate=True, rand_loc=False,
-                                            pooling=args.pooling)
+            adv_patch_tps, _ = tps.tps_trans(adv_patch, max_range=0.1, canvas=0.5, target_shape=adv_patch.shape[-2:])
+            adv_batch_t = patch_transformer(adv_patch_tps, lab_batch, args.img_size, do_rotate=True, rand_loc=False,
+                                            pooling=args.pooling, old_fasion=kwargs['old_fasion'])
             p_img_batch = patch_applier(img_batch, adv_batch_t)
-            det_loss = get_det_loss(p_img_batch)
+            det_loss, valid_num = get_det_loss(darknet_model, p_img_batch, lab_batch, args, kwargs)
+
+            if valid_num > 0:
+                det_loss = det_loss / valid_num
+
             tv = total_variation(adv_patch)
             disc, pj, pm = gen.get_loss(adv_patch, z[:adv_patch.shape[0]], args.gp)
             tv_loss = tv * args.tv_loss
             disc_loss = disc * args.disc if epoch >= args.dim_start_epoch else disc * 0.0
-            if epoch <= args.det_epoch:
-                loss = 0 * det_loss + torch.max(tv_loss, torch.tensor(0.1).to(device)) + disc_loss
-            else:
-                loss = det_loss + torch.max(tv_loss, torch.tensor(0.1).to(device)) + disc_loss
-            ep_det_loss += det_loss.detach().cpu().numpy()
-            ep_tv_loss += tv_loss.detach().cpu().numpy()
+
+            loss = det_loss + torch.max(tv_loss, torch.tensor(0.1).to(device)) + disc_loss
+            ep_det_loss += det_loss.detach().item()
+            ep_tv_loss += tv_loss.detach().item()
             ep_loss += loss.item()
 
             loss.backward()
@@ -234,16 +216,14 @@ def train_EGA():
 
                 writer.add_scalar('loss/total_loss', loss.item(), iteration)
                 writer.add_scalar('loss/det_loss', det_loss.item(), iteration)
-                #                 writer.add_scalar('loss/nps_loss', nps.item(), iteration)
                 writer.add_scalar('loss/tv_loss', tv.item(), iteration)
                 writer.add_scalar('loss/disc_loss', disc.item(), iteration)
                 writer.add_scalar('loss/disc_prob_true', pj.mean().item(), iteration)
                 writer.add_scalar('loss/disc_prob_fake', pm.mean().item(), iteration)
                 writer.add_scalar('misc/epoch', epoch, iteration)
                 writer.add_scalar('misc/learning_rate', optimizerG.param_groups[0]["lr"], iteration)
-                #                 writer.add_image('patch', adv_patch.squeeze(0), 0)
 
-            if epoch % max(min((args.n_epochs // 10), 10), 1) == 0:
+            if epoch % max(min((args.n_epochs // 10), 100), 1) == 0:
                 writer.add_image('patch', adv_patch[0], iteration)
                 rpath = os.path.join(results_dir, 'patch%d' % epoch)
                 np.save(rpath, adv_patch.detach().cpu().numpy())
@@ -260,6 +240,7 @@ def train_EGA():
         writer.flush()
     writer.close()
     return gen
+
 
 def train_z(gen=None):
     if gen is None:
@@ -298,17 +279,21 @@ def train_z(gen=None):
             img_batch = img_batch.to(device)
             lab_batch = lab_batch.to(device)
             z_crop, _, _ = random_crop(z, args.crop_size_z, pos=args.pos, crop_type=args.crop_type_z)
+
             adv_patch = gen.generate(z_crop)
             adv_patch_tps, _ = tps.tps_trans(adv_patch, max_range=0.1, canvas=0.5, target_shape=adv_patch.shape[-2:])
             adv_batch_t = patch_transformer(adv_patch_tps, lab_batch, args.img_size, do_rotate=True, rand_loc=False,
-                                            pooling=args.pooling)
+                                            pooling=args.pooling, old_fasion=kwargs['old_fasion'])
             p_img_batch = patch_applier(img_batch, adv_batch_t)
-            det_loss = get_det_loss(p_img_batch)
+            det_loss, valid_num = get_det_loss(darknet_model, p_img_batch, lab_batch, args, kwargs)
+            if valid_num > 0:
+                det_loss = det_loss / valid_num
+
             tv = total_variation(adv_patch)
             tv_loss = tv * args.tv_loss
             loss = det_loss + torch.max(tv_loss, torch.tensor(0.1).to(device))
-            ep_det_loss += det_loss.detach().cpu().numpy()
-            ep_tv_loss += tv_loss.detach().cpu().numpy()
+            ep_det_loss += det_loss.detach().item()
+            ep_tv_loss += tv_loss.detach().item()
             ep_loss += loss.item()
 
             loss.backward()
@@ -324,7 +309,7 @@ def train_z(gen=None):
                 writer.add_scalar('misc/epoch', epoch, iteration)
                 writer.add_scalar('misc/learning_rate', optimizer.param_groups[0]["lr"], iteration)
 
-            if epoch % max(min((args.n_epochs // 10), 10), 1) == 0:
+            if epoch % max(min((args.n_epochs // 10), 100), 1) == 0:
                 writer.add_image('patch', adv_patch.squeeze(0), iteration)
                 rpath = os.path.join(results_dir, 'patch%d' % epoch)
                 np.save(rpath, adv_patch.detach().cpu().numpy())
@@ -340,6 +325,7 @@ def train_z(gen=None):
         et0 = time.time()
         writer.flush()
     writer.close()
+    return 0
 
 
 if pargs.method == 'RCA':

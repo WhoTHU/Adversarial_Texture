@@ -5,59 +5,39 @@ import numpy as np
 
 
 class Generator_dis(nn.Module):
-    def __init__(self, DIM=128, z_dim=16, img_shape=(32, 32)):
+    def __init__(self, DIM=128, z_dim=16, img_shape=(324, 324), cl_tensor=None):
         super(Generator_dis, self).__init__()
         self.DIM = DIM
-        # self.final_shape = (np.array(img_shape) / 32).astype(np.int64)
         self.final_shape = [9, 9]
         self.final_dim = np.prod(self.final_shape)
-        # self.img_shape  = self.final_shape * 32
         self.img_shape = img_shape
         preprocess = nn.Sequential(
-            nn.Conv2d(z_dim, z_dim, 1, 1),
-            nn.BatchNorm2d(z_dim),
-            nn.Tanh(),
+            nn.Conv2d(z_dim, 4 * DIM, 1, 1),
+            nn.BatchNorm2d(4 * DIM),
+            nn.ReLU(True),
         )
 
         block1 = nn.Sequential(
-            nn.ConvTranspose2d(z_dim, 1024, 4, stride=2, padding=3),
-            nn.BatchNorm2d(1024),
+            nn.ConvTranspose2d(4 * DIM, 2 * DIM, 4, stride=2, padding=3),
+            nn.BatchNorm2d(2 * DIM),
             nn.ReLU(True),
-            nn.ConvTranspose2d(1024, 512, 4, stride=2, padding=3),
-            nn.BatchNorm2d(512),
+            nn.ConvTranspose2d(2 * DIM, 2 * DIM, 4, stride=2, padding=3),
+            nn.BatchNorm2d(2 * DIM),
             nn.ReLU(True),
-            nn.ConvTranspose2d(512, 256, 4, stride=2, padding=3),
-            nn.BatchNorm2d(256),
+            nn.ConvTranspose2d(2 * DIM, 2 * DIM, 4, stride=2, padding=3),
+            nn.BatchNorm2d(2 * DIM),
             nn.ReLU(True),
-
-            # nn.ConvTranspose2d(256, 128, 3, stride=1, padding=1),
-            # nn.BatchNorm2d(2 * DIM),
-            # nn.ReLU(True),
-            # nn.ConvTranspose2d(2 * DIM, 4 * DIM, 1, stride=1, padding=0),
-            # nn.BatchNorm2d(4 * DIM),
-            # nn.ReLU(True),
-            # nn.ConvTranspose2d(4 * DIM, 2 * DIM, 3, stride=1, padding=1),
-            # nn.BatchNorm2d(2 * DIM),
-            # nn.ReLU(True),
-            # nn.ConvTranspose2d(2 * DIM, 4 * DIM, 1, stride=1, padding=0),
-            # nn.BatchNorm2d(4 * DIM),
-            # nn.ReLU(True),
-
-            # nn.ConvTranspose2d(4 * DIM, 2 * DIM, 4, stride=2, padding=3),
-            # nn.BatchNorm2d(2 * DIM),
-            # nn.ReLU(True),
-
-            nn.ConvTranspose2d(256, 128, 4, stride=2, padding=3),
-            nn.BatchNorm2d(128),
+            nn.ConvTranspose2d(2 * DIM, 2 * DIM, 4, stride=2, padding=3),
+            nn.BatchNorm2d(2 * DIM),
             nn.ReLU(True),
         )
         block2 = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, 4, stride=2, padding=3),
-            nn.BatchNorm2d(64),
+            nn.ConvTranspose2d(2 * DIM, DIM, 4, stride=2, padding=3),
+            nn.BatchNorm2d(DIM),
             nn.ReLU(True),
         )
         # deconv_out = nn.ConvTranspose2d(DIM, self.cl_num, 4, stride=2, padding=3)
-        deconv_out = nn.ConvTranspose2d(64, 3, 4, stride=2, padding=3)
+        deconv_out = nn.ConvTranspose2d(DIM, 3, 4, stride=2, padding=3)
 
         self.preprocess = preprocess
         self.block1 = block1
@@ -66,7 +46,9 @@ class Generator_dis(nn.Module):
         # self.tanh = nn.Tanh()
 
     def forward(self, input):
+        # print(input.shape)
         output = self.preprocess(input)
+        # print(output.shape)
         output = self.block1(output)
         output = self.block2(output)
         output = self.deconv_out(output)
@@ -76,9 +58,8 @@ class Generator_dis(nn.Module):
 
 
 class Discriminator_dis(nn.Module):
-    def __init__(self, DIM=128, img_shape=(324, 324)):
+    def __init__(self, DIM=128, img_shape=(324, 324), cl_tensor=None):
         super(Discriminator_dis, self).__init__()
-
         self.DIM = DIM
         # self.final_shape = (np.array(img_shape) / 32).astype(np.int64)
         self.final_shape = [9, 9]
@@ -123,14 +104,12 @@ class Discriminator_dis(nn.Module):
 
 
 class GAN_dis(nn.Module):
-    def __init__(self, DIM=128, z_dim=16, img_shape=(324, 324)):
+    def __init__(self, DIM=128, z_dim=16, img_shape=(324, 324), cl_tensor=None, args=None):
         super(GAN_dis, self).__init__()
         self.DIM = DIM
         self.z_dim = z_dim
-        # self.final_shape = (np.array(img_shape) / 32).astype(np.int64)
         self.final_shape = [9, 9]
         self.final_dim = np.prod(self.final_shape)
-        # self.img_shape = self.final_shape * 32
         self.img_shape = img_shape
         self.G = Generator_dis(self.DIM, self.z_dim, self.img_shape)
         self.D = Discriminator_dis(self.DIM, self.img_shape)
@@ -139,14 +118,17 @@ class GAN_dis(nn.Module):
         pass
 
     def get_loss(self, y, z, gp=0.0):
-        z_prime = torch.cat((z[1:], z[:1]), dim=0)
+        if z.shape[0] > 1:
+            z_prime = torch.cat((z[1:], z[:1]), dim=0)
+        else:
+            z_prime = z.new(z.shape).normal_()
         pj = self.D(y, z)
         pm = self.D(y, z_prime)
         Ej = -F.softplus(-pj).mean()
         Em = F.softplus(pm).mean()
         loss = (Em - Ej)
         if gp > 0:
-            return loss + gp * calc_gradient_penalty(self.D, y, z), pj, pm
+            return loss + gp * calc_gradient_penalty(self.D, y), pj, pm
         else:
             return loss, pj, pm
 
@@ -166,27 +148,15 @@ class GAN_dis(nn.Module):
     def anneal(self, steps=1):
         self.temp = max(self.temp * np.exp(- steps * self.anneal_rate), self.temp_min)
 
-def calc_gradient_penalty(net, real_data, real_data2):
-
-    # alpha = torch.rand(real_data.shape[0], 1, 1, 1)
-    # # alpha = alpha.expand(batch_size, int(real_data.nelement() / batch_size)).contiguous()
-    # # alpha = alpha.view(batch_size, 3, dim, dim)
-    # alpha = alpha.to(real_data)
-    #
-    # interpolates = alpha * real_data.detach() + ((1 - alpha) * fake_data.detach())
-    #
-    # interpolates.requires_grad_(True)
+def calc_gradient_penalty(net, real_data):
 
     interpolates = real_data.clone().detach().requires_grad_()
-    interpolates2 = real_data2.clone().detach().requires_grad_()
-    disc_interpolates = net(interpolates, interpolates2)
+    disc_interpolates = net(interpolates)
 
-    gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=[interpolates, interpolates2],
+    gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=interpolates,
                                     grad_outputs=torch.ones(disc_interpolates.size(), device=disc_interpolates.device),
                                     create_graph=True, retain_graph=True, only_inputs=True)[0]
 
-    gradients = [g.view(g.shape[0], -1) for g in gradients]
-    gradient_penalty = 0.0
-    for g in gradients:
-        gradient_penalty = gradient_penalty + ((g.norm(2, dim=1) - 1) ** 2).mean()
+    gradients = gradients.view(gradients.size(0), -1)
+    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
     return gradient_penalty
