@@ -1,5 +1,7 @@
 # Adversarial Texture for Fooling Person Detectors in Physical World
 
+This is the official repository for the paper [Adversarial Texture for Fooling Person Detectors in Physical World](https://openaccess.thecvf.com/content/CVPR2022/html/Hu_Adversarial_Texture_for_Fooling_Person_Detectors_in_the_Physical_World_CVPR_2022_paper.html).
+
 #### 1. Installation
 ### Requirements
 All the codes are tested in the following environment:
