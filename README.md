@@ -2,6 +2,11 @@
 
 This is the official repository for the paper [Adversarial Texture for Fooling Person Detectors in the Physical World](https://openaccess.thecvf.com/content/CVPR2022/html/Hu_Adversarial_Texture_for_Fooling_Person_Detectors_in_the_Physical_World_CVPR_2022_paper.html).
 
+
+<p align="center">
+  <img src="readme_figs/front.png" alt="drawing" width="90%"/>
+</p>
+
 #### 1. Installation
 ### Requirements
 All the codes are tested in the following environment:
@@ -64,3 +69,16 @@ We provide the command to train for each method.
  python training_texture.py --method $METHOD_NAME
 ```
 $METHOD_NAME can be replaced to "RCA", "TCA", EGA" or "TCEGA" when one use different methods. The patterns and checkpoints will be saved in directory "results/".
+
+#### 5. Patterns
+We provide the TCEGA patterns of yolov2, yolov3, FasterRCNN, and MaskRCNN for physical print in ./print_patterns/. Each file has a size of 2370 * 1185, where the recurrent unit has a size of 324 * 324.
+
+
+<p align="center">
+  <img src="readme_figs/physical_front1.png" alt="drawing" width="90%"/>
+</p>
+
+
+
+
+
