@@ -2,6 +2,7 @@
 
 This is the official repository for the paper [Adversarial Texture for Fooling Person Detectors in the Physical World](https://openaccess.thecvf.com/content/CVPR2022/html/Hu_Adversarial_Texture_for_Fooling_Person_Detectors_in_the_Physical_World_CVPR_2022_paper.html).
 
+This repository is built upon [adversarial-yolo](https://gitlab.com/EAVISE/adversarial-yolo) by EAVISE, which provides a PyTorch implementation for generating adversarial patches against YOLOv2 person detectors. We thank the authors for making their code publicly available.
 
 <p align="center">
   <img src="readme_figs/front.png" alt="drawing" width="90%"/>
